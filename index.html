@@ -506,7 +506,7 @@
 // ============================================================
 // 設定
 // ============================================================
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbyDPjv74lrMfFttHwgSOQSWs92AdzYwoQxb1KVcveubT4G14_Y9Cd9pao4BNr7cYuUq/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbzc3gGEAhwf7Cb8m08NK-FvSzq4jCdCxgQeGoC0FeXyweiVtOLPeHhiAi2G1FBps3jv/exec';
 const MAX_POST_LENGTH = 500;
 const AUTO_REFRESH_INTERVAL = 10000; // 10秒
 
@@ -890,11 +890,12 @@ function renderPosts() {
   const container = document.getElementById('timeline');
   if (!container) return;
 
+  const emptyEl = document.getElementById('timelineEmpty');
   if (state.posts.length === 0) {
-    document.getElementById('timelineEmpty').style.display = 'block';
+    if (emptyEl) emptyEl.style.display = 'block';
     container.innerHTML = '';
   } else {
-    document.getElementById('timelineEmpty').style.display = 'none';
+    if (emptyEl) emptyEl.style.display = 'none';
     container.innerHTML = state.posts.map(p => postCardHtml(p)).join('');
   }
 
@@ -963,11 +964,12 @@ async function submitPost() {
   try {
     const res = await api({ action: 'post', token: state.token, content });
     if (res.success) {
+      const hasGeko = /ゲコ|ｹﾞｺ|げこ|けこ/i.test(content);
       document.getElementById('postContent').value = '';
       updateCharCount();
       await loadTimeline();
       renderPosts();
-      showToast('ゲコった！🐸', 'success');
+      if (hasGeko) showToast('ゲコ！🐸', 'success');
     } else {
       showToast(res.error || '投稿に失敗しました', 'error');
     }
@@ -1021,8 +1023,14 @@ async function deletePost(postId) {
   try {
     const res = await api({ action: 'deletePost', token: state.token, postId });
     if (res.success) {
+      // DOMから即座に該当カードを取り除く（リロード不要）
+      const el = document.getElementById('post-' + postId);
+      if (el) el.remove();
+      // stateからも除去
       state.posts = state.posts.filter(p => p.postId !== postId);
-      renderPosts();
+      // 空状態チェックだけ更新
+      const emptyEl = document.getElementById('timelineEmpty');
+      if (emptyEl) emptyEl.style.display = state.posts.length === 0 ? 'block' : 'none';
       showToast('削除しました', 'success');
     } else { showToast(res.error, 'error'); }
   } catch { showToast('サーバーエラー', 'error'); }
@@ -1172,21 +1180,20 @@ function handleIconUpload(e) {
 
   const reader = new FileReader();
   reader.onload = (ev) => {
-    // Canvas でリサイズ
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const SIZE = 200; // 200x200にリサイズ
+      // GASのURL長制限対策：96x96・品質0.6に圧縮
+      const SIZE = 96;
       canvas.width = SIZE; canvas.height = SIZE;
       const ctx = canvas.getContext('2d');
-      // アスペクト比を保って中央クロップ
       const scale = Math.max(SIZE / img.width, SIZE / img.height);
       const sw = SIZE / scale, sh = SIZE / scale;
       const sx = (img.width - sw) / 2, sy = (img.height - sh) / 2;
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, SIZE, SIZE);
-      const b64 = canvas.toDataURL('image/jpeg', 0.85);
+      const b64 = canvas.toDataURL('image/jpeg', 0.6);
 
-      if (b64.length > 700000) { showToast('画像が大きすぎます', 'error'); return; }
+      if (b64.length > 20000) { showToast('画像が大きすぎます。別の画像を試してください', 'error'); return; }
 
       pendingIcon = b64;
       document.getElementById('profileIconPreview').innerHTML =
@@ -1200,27 +1207,31 @@ function handleIconUpload(e) {
 async function saveProfile() {
   const bio = document.getElementById('bioInput')?.value || '';
   const errEl = document.getElementById('profileError');
-
-  const params = { action: 'updateProfile', token: state.token, bio };
-  if (pendingIcon) params.iconBase64 = pendingIcon;
+  if (errEl) errEl.style.display = 'none';
 
   try {
-    const res = await api(params);
-    if (res.success) {
-      state.bio = bio;
-      if (pendingIcon) {
-        state.iconBase64 = pendingIcon;
-        localStorage.setItem('geko_icon', pendingIcon);
-        pendingIcon = null;
-      }
-      showToast('プロフィールを保存しました', 'success');
-    } else {
-      errEl.textContent = res.error;
-      errEl.style.display = 'block';
+    // bioとアイコンを別々に送信（JSONP URLサイズ制限対策）
+    const bioRes = await api({ action: 'updateProfile', token: state.token, bio });
+    if (!bioRes.success) {
+      if (errEl) { errEl.textContent = bioRes.error; errEl.style.display = 'block'; }
+      return;
     }
+    state.bio = bio;
+
+    if (pendingIcon) {
+      const iconRes = await api({ action: 'updateProfile', token: state.token, bio: '', iconBase64: pendingIcon });
+      if (!iconRes.success) {
+        if (errEl) { errEl.textContent = iconRes.error; errEl.style.display = 'block'; }
+        return;
+      }
+      state.iconBase64 = pendingIcon;
+      localStorage.setItem('geko_icon', pendingIcon);
+      pendingIcon = null;
+    }
+
+    showToast('プロフィールを保存しました', 'success');
   } catch {
-    errEl.textContent = 'サーバーエラーが発生しました';
-    errEl.style.display = 'block';
+    if (errEl) { errEl.textContent = 'サーバーエラーが発生しました'; errEl.style.display = 'block'; }
   }
 }
 
