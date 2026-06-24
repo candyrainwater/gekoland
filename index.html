@@ -506,7 +506,7 @@
 // ============================================================
 // 設定
 // ============================================================
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbw2Oa6BaJ7Itk9AQYCChn8-vpyiUOT2yIhfZSuSAZ5_OlB0n6VysGP1laWFhZr6G7sr/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbyDPjv74lrMfFttHwgSOQSWs92AdzYwoQxb1KVcveubT4G14_Y9Cd9pao4BNr7cYuUq/exec';
 const MAX_POST_LENGTH = 500;
 const AUTO_REFRESH_INTERVAL = 10000; // 10秒
 
@@ -536,13 +536,32 @@ async function api(params) {
     throw new Error('GAS_URL not set');
   }
   try {
-    const res = await fetch(GAS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
-      redirect: 'follow',
+    // GASはfile://からのPOSTをCORSでブロックするためJSONPで通信する
+    const data = await new Promise((resolve, reject) => {
+      const cbName = 'geko_cb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+      const script = document.createElement('script');
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error('timeout'));
+      }, 15000);
+
+      function cleanup() {
+        clearTimeout(timeout);
+        delete window[cbName];
+        if (script.parentNode) script.parentNode.removeChild(script);
+      }
+
+      window[cbName] = (result) => {
+        cleanup();
+        resolve(result);
+      };
+
+      // paramsをクエリ文字列に変換（Base64でJSON全体を渡す）
+      const payload = btoa(unescape(encodeURIComponent(JSON.stringify(params))));
+      script.src = `${GAS_URL}?callback=${cbName}&payload=${encodeURIComponent(payload)}`;
+      script.onerror = () => { cleanup(); reject(new Error('script load error')); };
+      document.head.appendChild(script);
     });
-    const data = await res.json();
     return data;
   } catch (e) {
     console.error('API error:', e);
