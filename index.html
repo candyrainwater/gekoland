@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ゲコランド</title>
+  <meta name="robots" content="noindex, nofollow">
   <style>
     /* ============================================================
        カスタムプロパティ（ダーク / ライト テーマ）
@@ -1209,6 +1210,13 @@ async function saveProfile() {
   const errEl = document.getElementById('profileError');
   if (errEl) errEl.style.display = 'none';
 
+  const saveBtn = document.querySelector('.card.profile-page .btn-primary');
+  const origLabel = saveBtn ? saveBtn.innerHTML : '保存する';
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<span class="loading-spinner"></span> 保存中…';
+  }
+  let succeeded = false;
   try {
     // bioとアイコンを別々に送信（JSONP URLサイズ制限対策）
     const bioRes = await api({ action: 'updateProfile', token: state.token, bio });
@@ -1229,9 +1237,33 @@ async function saveProfile() {
       pendingIcon = null;
     }
 
-    showToast('プロフィールを保存しました', 'success');
+    succeeded = true;
+    if (saveBtn) {
+      saveBtn.innerHTML = '✅ 変更しました！';
+      saveBtn.style.background = 'var(--success)';
+      saveBtn.style.color = '#1a1a1a';
+    }
+    showToast('プロフィールを変更しました 🐸', 'success');
   } catch {
     if (errEl) { errEl.textContent = 'サーバーエラーが発生しました'; errEl.style.display = 'block'; }
+  } finally {
+    if (succeeded) {
+      setTimeout(() => {
+        if (saveBtn) {
+          saveBtn.innerHTML = origLabel;
+          saveBtn.style.background = '';
+          saveBtn.style.color = '';
+          saveBtn.disabled = false;
+        }
+      }, 2000);
+    } else {
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = origLabel;
+        saveBtn.style.background = '';
+        saveBtn.style.color = '';
+      }
+    }
   }
 }
 
